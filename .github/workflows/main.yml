@@ -15,26 +15,29 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - name: Install MinGW
-        uses: egor-tensin/setup-mingw@v2
+      # 游戏和注入到加载器的 Lyi.dll 都是 32 位，加载器必须同样用 x86 工具链编译。
+      - uses: msys2/setup-msys2@v2
         with:
-          platform: x86
+          msystem: MINGW32
+          update: false
+          install: mingw-w64-i686-gcc
 
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Build RA3.exe
+        shell: msys2 {0}
         run: |-
           g++ -c UserInterface.cpp -o UserInterface.o -Os -Wall -std=c++17 -DUNICODE -D_UNICODE
           g++ -c main.cpp -o main.o -Wall -std=c++17 -Os -DUNICODE -D_UNICODE
           windres -i resource.rc -o resource.res -O coff
           g++ UserInterface.o main.o resource.res -o RA3.exe -mwindows -static-libgcc -static-libstdc++ -lComctl32 -lShlwapi -static -lpthread -s
+
       - name: Upload a Build Artifact
-        uses: actions/upload-artifact@v2.2.4
+        uses: actions/upload-artifact@v4
         with:
           # Artifact name
           name: RA3.exe
           # A file, directory or wildcard pattern that describes what to upload
           path: RA3.exe
           retention-days: 90
-

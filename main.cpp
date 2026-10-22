@@ -255,8 +255,7 @@ int main() {
 			auto et = getAndRemoveArgument(checkWithString(L"-allowAlwaysOnTop"), ExtractMode::extractName);
 			auto windowed    = getArgument(L"-win", ExtractMode::extractName);
 			auto fullscreen  = getArgument(L"-fullscreen", ExtractMode::extractName);
-			auto resolutionX = parseInt(getArgument(L"-xres", ExtractMode::extractValue));
-			auto resolutionY = parseInt(getArgument(L"-yres", ExtractMode::extractValue));
+			// -xres/-yres 原样转发给游戏（它按这两个值建窗口），这里不再解析：居中按窗口实际尺寸算。
 			if(not er.has_value()) {
 				er = getAndRemoveArgument(checkWithString(L"-file"), ExtractMode::extractValue);
 			}
@@ -431,17 +430,17 @@ int main() {
 					if(SendMessageTimeoutW(gameWindow, WM_NULL, 0, 0, SMTO_ERRORONEXIT, interval, nullptr) == 0) {
 						continue;
 					}
+					// 窗口调整和游戏用同一套坐标系（unaware），见 DpiUnawareScope
+					auto dpiScope = Windows::DpiUnawareScope{};
 					auto rect = getWindowRect(gameWindow);
 
-					// 在全屏窗口化模式下，自动居中窗口
+					// 在全屏窗口化模式下，按窗口实际尺寸在它所在的显示器内居中。
+					// 不能用 -xres/-yres 算：那是游戏的物理像素语义，和这里的虚拟化坐标混用会在缩放不是 100% 时算出屏幕外位置。
+					// 窗口尺寸等于显示器时结果正好铺满，不留缝。
 					if(fullscreen.has_value()) {
-						auto desktop = getWindowRect(GetDesktopWindow());
-						if(resolutionX.has_value()) {
-							rect.left = (rectWidth(desktop) - resolutionX.value()) / 2;
-						}
-						if(resolutionY.has_value()) {
-							rect.top = (rectHeight(desktop) - resolutionY.value()) / 2;
-						}
+						auto monitor = getMonitorRect(gameWindow);
+						rect.left = monitor.left + (rectWidth(monitor) - rectWidth(rect)) / 2;
+						rect.top = monitor.top + (rectHeight(monitor) - rectHeight(rect)) / 2;
 					}
 
 					// 假如玩家在命令行参数里指定了窗口位置，就将窗口移动到指定位置

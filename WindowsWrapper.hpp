@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <utility>
 #include <memory>
 #include <array>
@@ -309,6 +310,64 @@ namespace Windows {
 		GetWindowRect(windowHandle, &windowRect) >> checkWin32Result("GetClientRect", errorValue, false);
 		return windowRect;
 	}
+
+	// 窗口当前所在显示器的完整矩形（rcMonitor，不含任务栏裁剪）。取不到显示器时退回整块桌面。
+	inline RECT getMonitorRect(HWND windowHandle) {
+		auto monitor = MonitorFromWindow(windowHandle, MONITOR_DEFAULTTONEAREST);
+		if(monitor == nullptr) {
+			return getWindowRect(GetDesktopWindow());
+		}
+
+		auto info = MONITORINFO{};
+		info.cbSize = sizeof(info);
+		if(not GetMonitorInfoW(monitor, &info)) {
+			return getWindowRect(GetDesktopWindow());
+		}
+
+		return info.rcMonitor;
+	}
+
+	using SetThreadDpiAwarenessContextProc = HANDLE(WINAPI*)(HANDLE);
+
+	// 把当前线程的 DPI 感知上下文临时切到 unaware。
+	// 游戏默认是 DPI unaware（虚拟化坐标），读窗口/显示器矩形和 SetWindowPos 必须和它在同一套坐标系里，
+	// 否则缩放不是 100% 时会按物理像素解释坐标、把窗口算出屏幕外。系统没有这个 API 时降级为不切换。
+	// 动态取符号：老版本 mingw 头文件里没有 SetThreadDpiAwarenessContext。
+	class DpiUnawareScope {
+	public:
+		DpiUnawareScope() noexcept
+		        : procedure{resolveProcedure()} {
+			if(procedure != nullptr) {
+				previousContext = procedure(unawareContext());
+			}
+		}
+
+		~DpiUnawareScope() {
+			if(procedure != nullptr and previousContext != nullptr) {
+				procedure(previousContext);
+			}
+		}
+
+		DpiUnawareScope(const DpiUnawareScope&) = delete;
+		DpiUnawareScope& operator=(const DpiUnawareScope&) = delete;
+
+	private:
+		static constexpr INT_PTR unawareContextValue = -1;
+
+		static HANDLE unawareContext() noexcept {
+			return reinterpret_cast<HANDLE>(unawareContextValue);
+		}
+
+		static SetThreadDpiAwarenessContextProc resolveProcedure() noexcept {
+			auto user32 = GetModuleHandleW(L"user32.dll");
+			return user32 == nullptr
+			       ? nullptr
+			       : reinterpret_cast<SetThreadDpiAwarenessContextProc>(GetProcAddress(user32, "SetThreadDpiAwarenessContext"));
+		}
+
+		SetThreadDpiAwarenessContextProc procedure;
+		HANDLE previousContext = nullptr;
+	};
 
 	inline RECT setWindowRectByClientRect(HWND windowHandle, int width, int height) {
 		auto expectedClientRect = RECT {0, 0, width, height};
